@@ -15,7 +15,7 @@
 add_executable_m7(detect_faces
     detect_faces.cc
     DATA
-    ${PROJECT_SOURCE_DIR}/models/ssd_mobilenet_v2_face_quant_postprocess_edgetpu.tflite
+    ${PROJECT_SOURCE_DIR}/models/multi_int8new_edgetpu.tflite
 )
 
 target_link_libraries(detect_faces

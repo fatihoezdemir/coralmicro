@@ -16,6 +16,7 @@
 
 #include "libs/base/filesystem.h"
 #include "libs/base/led.h"
+#include "libs/base/timer.h"
 #include "libs/camera/camera.h"
 #include "libs/tensorflow/detection.h"
 #include "libs/tensorflow/utils.h"
@@ -38,7 +39,8 @@
 namespace coralmicro {
 namespace {
 constexpr char kModelPath[] =
-    "/models/ssd_mobilenet_v2_face_quant_postprocess_edgetpu.tflite";
+    // "/models/ssd_mobilenet_v2_face_quant_postprocess_edgetpu.tflite";
+    "/models/multi_int8new_edgetpu.tflite";
 constexpr int kTopK = 5;
 constexpr float kThreshold = 0.5;
 
@@ -47,6 +49,9 @@ constexpr int kTensorArenaSize = 8 * 1024 * 1024;
 STATIC_TENSOR_ARENA_IN_SDRAM(tensor_arena, kTensorArenaSize);
 
 [[noreturn]] void Main() {
+
+    vTaskDelay(pdMS_TO_TICKS(2000));  // wait 2s so serial is ready
+
   printf("Face Detection Example!\r\n");
   // Turn on Status LED to show the board is on.
   LedSet(Led::kStatus, true);
@@ -77,8 +82,8 @@ STATIC_TENSOR_ARENA_IN_SDRAM(tensor_arena, kTensorArenaSize);
     vTaskSuspend(nullptr);
   }
 
-  if (interpreter.inputs().size() != 1) {
-    printf("ERROR: Model must have only one input tensor\r\n");
+  if (interpreter.inputs().size() != 2) {
+    printf("ERROR: Model must have only two input tensor and not %d \r\n",interpreter.inputs().size());
     vTaskSuspend(nullptr);
   }
 
@@ -86,18 +91,24 @@ STATIC_TENSOR_ARENA_IN_SDRAM(tensor_arena, kTensorArenaSize);
   CameraTask::GetSingleton()->SetPower(true);
   CameraTask::GetSingleton()->Enable(CameraMode::kStreaming);
 
-  auto* input_tensor = interpreter.input_tensor(0);
-  int model_height = input_tensor->dims->data[1];
-  int model_width = input_tensor->dims->data[2];
+  auto* input_tensor_image = interpreter.input_tensor(0);
+  auto* input_tensor_question = interpreter.input_tensor(1);
+  int model_img_height = input_tensor_image->dims->data[1];
+  int model_img_width = input_tensor_image->dims->data[2];
+  int model_q_height = input_tensor_question->dims->data[1];
+  int model_q_width = input_tensor_question->dims->data[2];
+  printf("[DEBUG]]: model image input height %d width %d \r\n",model_img_height,model_img_width);
+  printf("[DEBUG]]: model question input height %d width %d \r\n",model_q_height,model_q_width);
 
+  auto preprocess_start = TimerMillis();
   while (true) {
     CameraFrameFormat fmt{CameraFormat::kRgb,
                           CameraFilterMethod::kBilinear,
                           CameraRotation::k270,
-                          model_width,
-                          model_height,
+                          model_img_width,
+                          model_img_height,
                           false,
-                          tflite::GetTensorData<uint8_t>(input_tensor)};
+                          tflite::GetTensorData<uint8_t>(input_tensor_image)};
     if (!CameraTask::GetSingleton()->GetFrame({fmt})) {
       printf("Failed to capture image\r\n");
       vTaskSuspend(nullptr);
@@ -111,8 +122,8 @@ STATIC_TENSOR_ARENA_IN_SDRAM(tensor_arena, kTensorArenaSize);
     if (auto results =
             tensorflow::GetDetectionResults(&interpreter, kThreshold, kTopK);
         !results.empty()) {
-      printf("Found %d face(s):\r\n%s\r\n", results.size(),
-             tensorflow::FormatDetectionOutput(results).c_str());
+      // printf("Found %d face(s):\r\n%s\r\n", results.size(),
+            //  tensorflow::FormatDetectionOutput(results).c_str());
       LedSet(Led::kUser, true);
     } else {
       LedSet(Led::kUser, false);
